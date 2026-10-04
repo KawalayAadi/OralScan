@@ -1,12 +1,8 @@
 package com.oralscan.app.ui.camera
 
-import android.Manifest
-import android.content.Intent
-import android.content.pm.PackageManager
-import android.net.Uri
-import android.provider.Settings
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageCapture
@@ -15,7 +11,6 @@ import androidx.camera.view.CameraController
 import androidx.camera.view.LifecycleCameraController
 import androidx.camera.view.PreviewView
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -28,34 +23,29 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Cameraswitch
 import androidx.compose.material.icons.filled.FlashlightOff
 import androidx.compose.material.icons.filled.FlashlightOn
 import androidx.compose.material.icons.filled.LightMode
-import androidx.compose.material.icons.filled.NoPhotography
 import androidx.compose.material.icons.filled.PanTool
+import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material.icons.filled.Straighten
-import androidx.compose.material3.Button
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -63,53 +53,32 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.oralscan.app.ui.common.appContainer
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
+/** Oral photo camera. [patientLabel] is shown as a reminder of who is being scanned. */
 @Composable
 fun CameraScreen(
+    patientLabel: String?,
     onBack: () -> Unit,
-    onPhotoCaptured: (String) -> Unit,
+    onPhotoReady: (String) -> Unit,
 ) {
-    val context = LocalContext.current
-    var hasPermission by remember {
-        mutableStateOf(
-            ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) ==
-                PackageManager.PERMISSION_GRANTED
-        )
-    }
-    var askedOnce by remember { mutableStateOf(false) }
-    val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
-        hasPermission = it
-        askedOnce = true
-    }
-    LaunchedEffect(Unit) {
-        if (!hasPermission) permissionLauncher.launch(Manifest.permission.CAMERA)
-    }
-
-    Box(
-        Modifier
-            .fillMaxSize()
-            .background(Color.Black)
-    ) {
-        if (hasPermission) {
-            CameraContent(onBack = onBack, onPhotoCaptured = onPhotoCaptured)
-        } else {
-            PermissionNeeded(
-                showSettingsButton = askedOnce,
-                onRequest = { permissionLauncher.launch(Manifest.permission.CAMERA) },
-                onBack = onBack,
-            )
-        }
+    CameraPermissionGate(onBack = onBack) {
+        CameraContent(patientLabel = patientLabel, onBack = onBack, onPhotoReady = onPhotoReady)
     }
 }
 
 @Composable
 private fun CameraContent(
+    patientLabel: String?,
     onBack: () -> Unit,
-    onPhotoCaptured: (String) -> Unit,
+    onPhotoReady: (String) -> Unit,
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val imageStore = appContainer().imageStore
+    val scope = rememberCoroutineScope()
 
     val cameraController = remember {
         LifecycleCameraController(context).apply {
@@ -127,6 +96,18 @@ private fun CameraContent(
     var useFrontCamera by remember { mutableStateOf(false) }
     var capturing by remember { mutableStateOf(false) }
 
+    val pickPhoto = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        scope.launch {
+            val file = withContext(Dispatchers.IO) { imageStore.importFromUri(uri) }
+            if (file != null) {
+                onPhotoReady(file.absolutePath)
+            } else {
+                Toast.makeText(context, "Couldn't open that image", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
     fun capture() {
         if (capturing) return
         capturing = true
@@ -139,7 +120,7 @@ private fun CameraContent(
             object : ImageCapture.OnImageSavedCallback {
                 override fun onImageSaved(output: ImageCapture.OutputFileResults) {
                     capturing = false
-                    onPhotoCaptured(file.absolutePath)
+                    onPhotoReady(file.absolutePath)
                 }
 
                 override fun onError(exception: ImageCaptureException) {
@@ -196,6 +177,15 @@ private fun CameraContent(
                 Icon(Icons.Filled.Cameraswitch, "Switch camera", tint = Color.White)
             }
         }
+        if (patientLabel != null) {
+            Text(
+                patientLabel,
+                color = Color.White.copy(alpha = 0.85f),
+                style = MaterialTheme.typography.labelLarge,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
         Text(
             "Fit the open mouth inside the outline",
             color = Color.White,
@@ -203,11 +193,11 @@ private fun CameraContent(
             textAlign = TextAlign.Center,
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(top = 8.dp),
+                .padding(top = 4.dp),
         )
     }
 
-    // Bottom: tips + shutter
+    // Bottom: tips + gallery / shutter
     Column(
         Modifier
             .fillMaxSize()
@@ -222,86 +212,20 @@ private fun CameraContent(
             TipChip(Icons.Filled.PanTool, "Hold steady")
         }
         Spacer(Modifier.size(24.dp))
-        ShutterButton(capturing = capturing, onClick = ::capture)
-    }
-}
-
-@Composable
-private fun TipChip(icon: ImageVector, text: String) {
-    Row(
-        modifier = Modifier
-            .background(Color.Black.copy(alpha = 0.5f), RoundedCornerShape(50))
-            .padding(horizontal = 10.dp, vertical = 6.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Icon(icon, contentDescription = null, tint = Color.White, modifier = Modifier.size(14.dp))
-        Spacer(Modifier.size(6.dp))
-        Text(text, color = Color.White, style = MaterialTheme.typography.labelMedium)
-    }
-}
-
-@Composable
-private fun ShutterButton(capturing: Boolean, onClick: () -> Unit) {
-    Box(
-        modifier = Modifier
-            .size(80.dp)
-            .border(4.dp, Color.White, CircleShape)
-            .padding(8.dp),
-        contentAlignment = Alignment.Center,
-    ) {
-        if (capturing) {
-            CircularProgressIndicator(color = Color.White)
-        } else {
+        Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
             IconButton(
-                onClick = onClick,
+                onClick = {
+                    pickPhoto.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                },
                 modifier = Modifier
-                    .fillMaxSize()
-                    .background(Color.White, CircleShape),
-            ) {}
+                    .align(Alignment.CenterStart)
+                    .padding(start = 40.dp)
+                    .size(52.dp)
+                    .background(Color.Black.copy(alpha = 0.5f), CircleShape),
+            ) {
+                Icon(Icons.Filled.PhotoLibrary, "Upload from gallery", tint = Color.White)
+            }
+            ShutterButton(busy = capturing, onClick = ::capture)
         }
-    }
-}
-
-@Composable
-private fun PermissionNeeded(
-    showSettingsButton: Boolean,
-    onRequest: () -> Unit,
-    onBack: () -> Unit,
-) {
-    val context = LocalContext.current
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background)
-            .statusBarsPadding()
-            .padding(32.dp),
-        verticalArrangement = Arrangement.Center,
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        Icon(
-            Icons.Filled.NoPhotography,
-            contentDescription = null,
-            modifier = Modifier.size(56.dp),
-            tint = MaterialTheme.colorScheme.primary,
-        )
-        Spacer(Modifier.size(16.dp))
-        Text("Camera access needed", style = MaterialTheme.typography.titleLarge)
-        Spacer(Modifier.size(8.dp))
-        Text(
-            "OralScan uses the camera only to take the photo you analyze. Photos stay on this device.",
-            textAlign = TextAlign.Center,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        Spacer(Modifier.size(24.dp))
-        Button(onClick = onRequest) { Text("Allow camera") }
-        if (showSettingsButton) {
-            OutlinedButton(onClick = {
-                context.startActivity(
-                    Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", context.packageName, null))
-                )
-            }) { Text("Open app settings") }
-        }
-        Spacer(Modifier.size(8.dp))
-        OutlinedButton(onClick = onBack) { Text("Go back") }
     }
 }

@@ -65,4 +65,5 @@ dependencies {
 
     implementation(libs.androidx.exifinterface)
     implementation(libs.coil.compose)
+    implementation(libs.litert)
 }

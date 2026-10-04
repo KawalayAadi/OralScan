@@ -13,6 +13,7 @@ import java.util.UUID
  * All image files live in app-private storage:
  * - cacheDir/captures: fresh photos waiting for review (temporary)
  * - filesDir/scans: images and masks belonging to saved scans
+ * - filesDir/faces: patients' reference face crops
  */
 class ImageStore(private val context: Context) {
 
@@ -21,6 +22,9 @@ class ImageStore(private val context: Context) {
 
     private val scansDir: File
         get() = File(context.filesDir, "scans").apply { mkdirs() }
+
+    private val facesDir: File
+        get() = File(context.filesDir, "faces").apply { mkdirs() }
 
     fun newCaptureFile(): File = File(capturesDir, "capture_${System.currentTimeMillis()}.jpg")
 
@@ -68,6 +72,26 @@ class ImageStore(private val context: Context) {
         val file = File(scansDir, "mask_${UUID.randomUUID()}.png")
         file.outputStream().use { mask.compress(Bitmap.CompressFormat.PNG, 100, it) }
         return file
+    }
+
+    fun saveFace(face: Bitmap): File {
+        val file = File(facesDir, "face_${UUID.randomUUID()}.jpg")
+        file.outputStream().use { face.compress(Bitmap.CompressFormat.JPEG, 95, it) }
+        return file
+    }
+
+    /**
+     * Cuts a square out of [bitmap] centred on ([centerX], [centerY]) with the given [side]
+     * (clamped to the image), then scales it to [outputSize] x [outputSize].
+     */
+    fun cropSquare(bitmap: Bitmap, centerX: Float, centerY: Float, side: Float, outputSize: Int): Bitmap {
+        val s = side.toInt().coerceIn(1, minOf(bitmap.width, bitmap.height))
+        val left = (centerX - s / 2f).toInt().coerceIn(0, bitmap.width - s)
+        val top = (centerY - s / 2f).toInt().coerceIn(0, bitmap.height - s)
+        val cropped = Bitmap.createBitmap(bitmap, left, top, s, s)
+        val scaled = Bitmap.createScaledBitmap(cropped, outputSize, outputSize, true)
+        if (scaled !== cropped) cropped.recycle()
+        return scaled
     }
 
     fun delete(path: String) {

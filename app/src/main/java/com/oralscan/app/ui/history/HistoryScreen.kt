@@ -45,8 +45,11 @@ import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import coil.compose.AsyncImage
 import com.oralscan.app.data.ScanEntity
+import com.oralscan.app.data.ScanWithPatient
+import com.oralscan.app.data.faceCheckValue
 import com.oralscan.app.data.ScanRepository
 import com.oralscan.app.data.isSuccess
+import com.oralscan.app.ui.common.FaceCheckBadge
 import com.oralscan.app.ui.common.StatusBadge
 import com.oralscan.app.ui.common.formatTimestamp
 import com.oralscan.app.ui.common.requireContainer
@@ -58,7 +61,7 @@ import java.io.File
 
 class HistoryViewModel(private val repository: ScanRepository) : ViewModel() {
     /** null while loading, so the empty state doesn't flash on open. */
-    val scans: StateFlow<List<ScanEntity>?> = repository.observeAll()
+    val scans: StateFlow<List<ScanWithPatient>?> = repository.observeAll()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     fun delete(scan: ScanEntity) {
@@ -108,9 +111,9 @@ fun HistoryScreen(
                         modifier = Modifier.padding(start = 4.dp, bottom = 4.dp),
                     )
                 }
-                items(list, key = { it.id }) { scan ->
-                    SwipeToDeleteRow(onDelete = { viewModel.delete(scan) }) {
-                        HistoryRow(scan = scan, onClick = { onOpenScan(scan.id) })
+                items(list, key = { it.scan.id }) { item ->
+                    SwipeToDeleteRow(onDelete = { viewModel.delete(item.scan) }) {
+                        HistoryRow(scan = item.scan, patientName = item.patientName, onClick = { onOpenScan(item.scan.id) })
                     }
                 }
             }
@@ -142,7 +145,7 @@ private fun SwipeToDeleteRow(onDelete: () -> Unit, content: @Composable () -> Un
 }
 
 @Composable
-private fun HistoryRow(scan: ScanEntity, onClick: () -> Unit) {
+private fun HistoryRow(scan: ScanEntity, patientName: String?, onClick: () -> Unit) {
     Card(
         onClick = onClick,
         shape = RoundedCornerShape(18.dp),
@@ -159,18 +162,18 @@ private fun HistoryRow(scan: ScanEntity, onClick: () -> Unit) {
             )
             Spacer(Modifier.size(14.dp))
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                Text(formatTimestamp(scan.createdAt), style = MaterialTheme.typography.titleSmall)
+                Text(
+                    patientName ?: if (scan.patientId == null) "No patient" else "Patient deleted",
+                    style = MaterialTheme.typography.titleSmall,
+                )
+                Text(formatTimestamp(scan.createdAt), style = MaterialTheme.typography.bodySmall)
                 Text(
                     scan.label ?: scan.message,
                     style = MaterialTheme.typography.bodyMedium,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
-                Text(
-                    scan.modelName,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+                scan.faceCheckValue()?.let { FaceCheckBadge(it) }
             }
             Spacer(Modifier.size(8.dp))
             StatusBadge(success = scan.isSuccess())

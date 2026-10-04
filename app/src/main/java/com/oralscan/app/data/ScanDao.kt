@@ -8,11 +8,29 @@ import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface ScanDao {
-    @Query("SELECT * FROM scans ORDER BY createdAt DESC")
-    fun observeAll(): Flow<List<ScanEntity>>
+    @Query(
+        """
+        SELECT s.*, p.name AS patientName FROM scans s
+        LEFT JOIN patients p ON p.id = s.patientId
+        ORDER BY s.createdAt DESC
+        """
+    )
+    fun observeAllWithPatient(): Flow<List<ScanWithPatient>>
 
-    @Query("SELECT * FROM scans WHERE id = :id")
-    fun observe(id: Long): Flow<ScanEntity?>
+    @Query(
+        """
+        SELECT s.*, p.name AS patientName FROM scans s
+        LEFT JOIN patients p ON p.id = s.patientId
+        WHERE s.id = :id
+        """
+    )
+    fun observeWithPatient(id: Long): Flow<ScanWithPatient?>
+
+    @Query("SELECT * FROM scans WHERE patientId = :patientId ORDER BY createdAt DESC")
+    fun observeForPatient(patientId: Long): Flow<List<ScanEntity>>
+
+    @Query("SELECT * FROM scans WHERE patientId = :patientId")
+    suspend fun getForPatient(patientId: Long): List<ScanEntity>
 
     @Query("SELECT COUNT(*) FROM scans")
     fun observeCount(): Flow<Int>

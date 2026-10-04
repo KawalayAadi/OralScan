@@ -59,6 +59,7 @@ class AnalyzeViewModel(
     private val container: AppContainer,
 ) : ViewModel() {
     val imagePath: String = savedStateHandle.get<String>(Routes.ARG_PATH).orEmpty()
+    private val scanContext = Routes.scanContextFrom(savedStateHandle)
 
     private val analyzer = container.createAnalyzer()
     val modelName: String = analyzer.name
@@ -80,7 +81,7 @@ class AnalyzeViewModel(
         }
         _state.value = try {
             val result = analyzer.analyze(bitmap)
-            val id = container.repository.save(bitmap, result, analyzer.name)
+            val id = container.repository.save(bitmap, result, analyzer.name, scanContext)
             container.imageStore.delete(imagePath) // the saved scan has its own copy now
             AnalyzeUiState.Done(id)
         } catch (e: CancellationException) {

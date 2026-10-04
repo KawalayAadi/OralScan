@@ -8,6 +8,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ErrorOutline
+import androidx.compose.material.icons.filled.GppBad
+import androidx.compose.material.icons.filled.GppMaybe
+import androidx.compose.material.icons.filled.VerifiedUser
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -21,6 +24,7 @@ import androidx.lifecycle.viewmodel.CreationExtras
 import androidx.lifecycle.ViewModelProvider.AndroidViewModelFactory.Companion.APPLICATION_KEY
 import com.oralscan.app.AppContainer
 import com.oralscan.app.OralScanApplication
+import com.oralscan.app.data.FaceCheck
 import com.oralscan.app.ui.theme.LocalStatusColors
 import java.time.Instant
 import java.time.ZoneId
@@ -42,6 +46,30 @@ fun appContainer(): AppContainer =
 /** For ViewModel factories: `initializer { MyViewModel(requireContainer()) }`. */
 fun CreationExtras.requireContainer(): AppContainer =
     (this[APPLICATION_KEY] as OralScanApplication).container
+
+/** Small pill showing how the patient's identity was checked for a scan. */
+@Composable
+fun FaceCheckBadge(check: FaceCheck, modifier: Modifier = Modifier) {
+    val status = LocalStatusColors.current
+    val (container, content, icon) = when (check) {
+        FaceCheck.VERIFIED, FaceCheck.ENROLLED ->
+            Triple(status.successContainer, status.onSuccessContainer, Icons.Filled.VerifiedUser)
+        FaceCheck.NOT_VERIFIED ->
+            Triple(MaterialTheme.colorScheme.errorContainer, MaterialTheme.colorScheme.onErrorContainer, Icons.Filled.GppBad)
+        FaceCheck.SKIPPED ->
+            Triple(MaterialTheme.colorScheme.surfaceVariant, MaterialTheme.colorScheme.onSurfaceVariant, Icons.Filled.GppMaybe)
+    }
+    Surface(color = container, contentColor = content, shape = RoundedCornerShape(50), modifier = modifier) {
+        Row(
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            Icon(icon, contentDescription = null, modifier = Modifier.size(13.dp))
+            Text(check.label, style = MaterialTheme.typography.labelSmall)
+        }
+    }
+}
 
 @Composable
 fun StatusBadge(success: Boolean, modifier: Modifier = Modifier) {

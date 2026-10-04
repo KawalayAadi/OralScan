@@ -1,13 +1,14 @@
 package com.oralscan.app.data
 
 import androidx.room.Entity
+import androidx.room.Index
 import androidx.room.PrimaryKey
 import com.oralscan.app.ml.AnalysisStatus
 import com.oralscan.app.ml.Region
 import org.json.JSONArray
 import org.json.JSONObject
 
-@Entity(tableName = "scans")
+@Entity(tableName = "scans", indices = [Index("patientId")])
 data class ScanEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val createdAt: Long,
@@ -23,9 +24,18 @@ data class ScanEntity(
     val latencyMs: Long,
     val regionsJson: String,
     val debugJson: String,
+    /** Null for scans taken without selecting a patient. */
+    val patientId: Long? = null,
+    /** [FaceCheck] name. */
+    val faceCheck: String? = null,
+    /** Fraction of reference photos that matched during verification, 0..1. */
+    val faceScore: Float? = null,
 )
 
 fun ScanEntity.isSuccess(): Boolean = status == AnalysisStatus.SUCCESS.name
+
+fun ScanEntity.faceCheckValue(): FaceCheck? =
+    faceCheck?.let { runCatching { FaceCheck.valueOf(it) }.getOrNull() }
 
 fun ScanEntity.debugEntries(): List<Pair<String, String>> {
     val array = JSONArray(debugJson)

@@ -5,9 +5,14 @@ import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
 
-@Database(entities = [ScanEntity::class], version = 1, exportSchema = false)
+@Database(
+    entities = [ScanEntity::class, PatientEntity::class, PatientFaceEntity::class],
+    version = 2,
+    exportSchema = false,
+)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun scanDao(): ScanDao
+    abstract fun patientDao(): PatientDao
 
     companion object {
         @Volatile
@@ -19,7 +24,12 @@ abstract class AppDatabase : RoomDatabase() {
                     context.applicationContext,
                     AppDatabase::class.java,
                     "oralscan.db",
-                ).build().also { instance = it }
+                )
+                    // Prototype: schema changes wipe local test data instead of migrating it.
+                    // Replace with real migrations before storing real patient data.
+                    .fallbackToDestructiveMigration(dropAllTables = true)
+                    .build()
+                    .also { instance = it }
             }
     }
 }

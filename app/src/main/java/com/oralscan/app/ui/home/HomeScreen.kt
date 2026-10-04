@@ -1,10 +1,5 @@
 package com.oralscan.app.ui.home
 
-import android.net.Uri
-import android.widget.Toast
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.PickVisualMediaRequest
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -22,31 +17,32 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.CameraAlt
+import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.History
-import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.WifiOff
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
@@ -61,24 +57,21 @@ import com.oralscan.app.ui.common.requireContainer
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 class HomeViewModel(private val container: AppContainer) : ViewModel() {
     val scanCount: StateFlow<Int> = container.repository.observeCount()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0)
 
-    val fakeMask = container.devSettings.fakeMask
-    val simulateFailure = container.devSettings.simulateFailure
+    val patientCount: StateFlow<Int> = container.patients.observeSummaries().map { it.size }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0)
 
-    fun setFakeMask(enabled: Boolean) = container.devSettings.setFakeMask(enabled)
-    fun setSimulateFailure(enabled: Boolean) = container.devSettings.setSimulateFailure(enabled)
+    val settings = container.devSettings
 
-    /** Copies the picked image into app storage and returns its path, or null on failure. */
-    suspend fun importPhoto(uri: Uri): String? = withContext(Dispatchers.IO) {
-        container.imageStore.importFromUri(uri)?.absolutePath
-    }
+    /** Loads the face model if needed (it can be large), so do it off the main thread. */
+    suspend fun faceModelName(): String = withContext(Dispatchers.IO) { container.faceVerifier.name }
 
     companion object {
         val Factory = viewModelFactory {
@@ -89,27 +82,14 @@ class HomeViewModel(private val container: AppContainer) : ViewModel() {
 
 @Composable
 fun HomeScreen(
-    onTakePhoto: () -> Unit,
-    onPhotoImported: (String) -> Unit,
+    onNewScan: () -> Unit,
+    onOpenPatients: () -> Unit,
     onOpenHistory: () -> Unit,
     viewModel: HomeViewModel = viewModel(factory = HomeViewModel.Factory),
 ) {
-    val context = LocalContext.current
-    val scope = rememberCoroutineScope()
     val scanCount by viewModel.scanCount.collectAsStateWithLifecycle()
+    val patientCount by viewModel.patientCount.collectAsStateWithLifecycle()
     var showDevOptions by remember { mutableStateOf(false) }
-
-    val pickPhoto = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
-        if (uri == null) return@rememberLauncherForActivityResult
-        scope.launch {
-            val path = viewModel.importPhoto(uri)
-            if (path != null) {
-                onPhotoImported(path)
-            } else {
-                Toast.makeText(context, "Couldn't open that image", Toast.LENGTH_SHORT).show()
-            }
-        }
-    }
 
     Scaffold { padding ->
         Column(
@@ -147,18 +127,20 @@ fun HomeScreen(
 
             HomeActionCard(
                 icon = Icons.Filled.CameraAlt,
-                title = "Take photo",
-                subtitle = "In-app camera with an alignment guide",
+                title = "New scan",
+                subtitle = "Pick the patient, verify their face, then photograph the mouth",
                 primary = true,
-                onClick = onTakePhoto,
+                onClick = onNewScan,
             )
             HomeActionCard(
-                icon = Icons.Filled.PhotoLibrary,
-                title = "Upload photo",
-                subtitle = "Choose an existing image from the gallery",
-                onClick = {
-                    pickPhoto.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                icon = Icons.Filled.Groups,
+                title = "Patients",
+                subtitle = when (patientCount) {
+                    0 -> "Add patients and enroll their faces"
+                    1 -> "1 patient"
+                    else -> "$patientCount patients"
                 },
+                onClick = onOpenPatients,
             )
             HomeActionCard(
                 icon = Icons.Filled.History,
@@ -179,7 +161,7 @@ fun HomeScreen(
                     Icon(Icons.Filled.WifiOff, null, tint = MaterialTheme.colorScheme.onSecondaryContainer)
                     Spacer(Modifier.size(12.dp))
                     Text(
-                        "Works fully offline. Photos and results never leave this phone.",
+                        "Works fully offline. Photos, faces and results never leave this phone.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSecondaryContainer,
                     )
@@ -243,30 +225,52 @@ private fun HomeActionCard(
 
 @Composable
 private fun DevOptionsDialog(viewModel: HomeViewModel, onDismiss: () -> Unit) {
-    val fakeMask by viewModel.fakeMask.collectAsStateWithLifecycle()
-    val simulateFailure by viewModel.simulateFailure.collectAsStateWithLifecycle()
+    val settings = viewModel.settings
+    val fakeMask by settings.fakeMask.collectAsStateWithLifecycle()
+    val simulateFailure by settings.simulateFailure.collectAsStateWithLifecycle()
+    val detection by settings.faceDetectionThreshold.collectAsStateWithLifecycle()
+    val verification by settings.faceVerificationThreshold.collectAsStateWithLifecycle()
+    val faceModel by produceState("Loading…") { value = viewModel.faceModelName() }
 
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Developer options") },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                Text(
-                    "For testing the app before the real model is added.",
-                    style = MaterialTheme.typography.bodyMedium,
-                )
+            Column(
+                Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(14.dp),
+            ) {
+                Text("Oral model (placeholder)", style = MaterialTheme.typography.titleSmall)
                 DevToggle(
                     title = "Fake lesion mask",
                     subtitle = "Draw a demo region so the overlay can be tested",
                     checked = fakeMask,
-                    onCheckedChange = viewModel::setFakeMask,
+                    onCheckedChange = settings::setFakeMask,
                 )
                 DevToggle(
                     title = "Simulate model failure",
                     subtitle = "Make the placeholder model report an error",
                     checked = simulateFailure,
-                    onCheckedChange = viewModel::setSimulateFailure,
+                    onCheckedChange = settings::setSimulateFailure,
                 )
+
+                HorizontalDivider()
+
+                Text("Face verification", style = MaterialTheme.typography.titleSmall)
+                Text(faceModel, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                ThresholdSlider(
+                    title = "Match threshold",
+                    subtitle = "A reference photo matches when its score is above this",
+                    value = detection,
+                    onValueChange = settings::setFaceDetectionThreshold,
+                )
+                ThresholdSlider(
+                    title = "Verification threshold",
+                    subtitle = "Verified when more than this share of reference photos match",
+                    value = verification,
+                    onValueChange = settings::setFaceVerificationThreshold,
+                )
+                TextButton(onClick = settings::resetFaceThresholds) { Text("Reset to faceid.py defaults (0.2 / 0.2)") }
             }
         },
         confirmButton = { TextButton(onClick = onDismiss) { Text("Done") } },
@@ -277,10 +281,27 @@ private fun DevOptionsDialog(viewModel: HomeViewModel, onDismiss: () -> Unit) {
 private fun DevToggle(title: String, subtitle: String, checked: Boolean, onCheckedChange: (Boolean) -> Unit) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f)) {
-            Text(title, style = MaterialTheme.typography.titleSmall)
+            Text(title, style = MaterialTheme.typography.bodyLarge)
             Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         Spacer(Modifier.size(12.dp))
         Switch(checked = checked, onCheckedChange = onCheckedChange)
+    }
+}
+
+@Composable
+private fun ThresholdSlider(title: String, subtitle: String, value: Float, onValueChange: (Float) -> Unit) {
+    Column {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(title, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
+            Text("%.2f".format(value), style = MaterialTheme.typography.labelLarge)
+        }
+        Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Slider(
+            value = value,
+            onValueChange = { onValueChange(Math.round(it * 100) / 100f) },
+            valueRange = 0f..1f,
+            steps = 19,
+        )
     }
 }

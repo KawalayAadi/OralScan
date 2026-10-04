@@ -15,6 +15,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Delete
@@ -57,6 +59,8 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import com.oralscan.app.data.ScanEntity
+import com.oralscan.app.data.ScanWithPatient
+import com.oralscan.app.data.faceCheckValue
 import com.oralscan.app.data.ScanRepository
 import com.oralscan.app.data.debugEntries
 import com.oralscan.app.data.isSuccess
@@ -64,6 +68,7 @@ import com.oralscan.app.data.regions
 import com.oralscan.app.ml.PlaceholderAnalyzer
 import com.oralscan.app.ui.Routes
 import com.oralscan.app.ui.common.DISCLAIMER
+import com.oralscan.app.ui.common.FaceCheckBadge
 import com.oralscan.app.ui.common.ScanImage
 import com.oralscan.app.ui.common.formatTimestamp
 import com.oralscan.app.ui.common.requireContainer
@@ -79,11 +84,11 @@ class ResultViewModel(
 ) : ViewModel() {
     private val scanId: Long = checkNotNull(savedStateHandle.get<Long>(Routes.ARG_SCAN_ID))
 
-    val scan: StateFlow<ScanEntity?> = repository.observe(scanId)
+    val scan: StateFlow<ScanWithPatient?> = repository.observe(scanId)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     fun delete(onDeleted: () -> Unit) {
-        val current = scan.value ?: return
+        val current = scan.value?.scan ?: return
         viewModelScope.launch {
             repository.delete(current)
             onDeleted()
@@ -102,6 +107,7 @@ class ResultViewModel(
 fun ResultScreen(
     onBack: () -> Unit,
     onNewScan: () -> Unit,
+    onOpenPatient: (Long) -> Unit,
     viewModel: ResultViewModel = viewModel(factory = ResultViewModel.Factory),
 ) {
     val scan by viewModel.scan.collectAsStateWithLifecycle()
@@ -132,8 +138,10 @@ fun ResultScreen(
             ) { CircularProgressIndicator() }
         } else {
             ResultContent(
-                scan = current,
+                scan = current.scan,
+                patientName = current.patientName,
                 onNewScan = onNewScan,
+                onOpenPatient = onOpenPatient,
                 modifier = Modifier.padding(padding),
             )
         }
@@ -158,7 +166,9 @@ fun ResultScreen(
 @Composable
 private fun ResultContent(
     scan: ScanEntity,
+    patientName: String?,
     onNewScan: () -> Unit,
+    onOpenPatient: (Long) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val regions = remember(scan.id) { scan.regions() }
@@ -189,6 +199,8 @@ private fun ResultContent(
             }
         }
 
+        PatientCard(scan, patientName, onOpenPatient)
+
         StatusCard(scan)
 
         if (scan.modelName == PlaceholderAnalyzer.NAME) {
@@ -212,6 +224,52 @@ private fun ResultContent(
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(bottom = 16.dp),
         )
+    }
+}
+
+@Composable
+private fun PatientCard(scan: ScanEntity, patientName: String?, onOpenPatient: (Long) -> Unit) {
+    val pid = scan.patientId
+    Card(
+        onClick = { pid?.let(onOpenPatient) },
+        enabled = pid != null && patientName != null,
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+            disabledContainerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+            disabledContentColor = MaterialTheme.colorScheme.onSurface,
+        ),
+    ) {
+        Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+            Icon(Icons.Filled.Person, null, tint = MaterialTheme.colorScheme.primary)
+            Spacer(Modifier.size(12.dp))
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(
+                    when {
+                        pid == null -> "No patient (anonymous scan)"
+                        patientName == null -> "Patient deleted"
+                        else -> patientName
+                    },
+                    style = MaterialTheme.typography.titleMedium,
+                )
+                scan.faceCheckValue()?.let { check ->
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        FaceCheckBadge(check)
+                        scan.faceScore?.let {
+                            Spacer(Modifier.size(8.dp))
+                            Text(
+                                "%.0f %% of reference photos matched".format(it * 100),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                }
+            }
+            if (pid != null && patientName != null) {
+                Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null)
+            }
+        }
     }
 }
 
