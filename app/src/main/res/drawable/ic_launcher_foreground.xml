@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Magnifying glass over a smile. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:pathData="M34,50 A17,17 0 1,1 68,50 A17,17 0 1,1 34,50 Z"
+        android:strokeWidth="6"
+        android:strokeColor="#FFFFFF" />
+    <path
+        android:pathData="M63.5,63.5 L75,75"
+        android:strokeWidth="7"
+        android:strokeColor="#FFFFFF"
+        android:strokeLineCap="round" />
+    <path
+        android:pathData="M42,48 Q51,59 60,48"
+        android:strokeWidth="4"
+        android:strokeColor="#9CF1F0"
+        android:strokeLineCap="round" />
+</vector>
